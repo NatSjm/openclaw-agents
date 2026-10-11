@@ -13,29 +13,11 @@ EMAIL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2
 
 
 def private_values(project):
-    values = {}
-    for path in (project / ".env", project / ".local/openclaw.env",
-                 project / ".local/native/hermes/.env"):
-        values.update(env_values(path))
-    private = {value for key, value in values.items() if value and (
+    """Credential-like values from the private env file; used only for comparisons."""
+    values = env_values(project / ".local/openclaw.env")
+    return {value for key, value in values.items() if value and (
         key.startswith("OPENCLAW_PRIVATE_") or
         key.endswith(("_TOKEN", "_PASSWORD", "_SECRET", "_KEY", "_EMAIL", "_USERS", "_CHATS", "_ID", "_IDS")))}
-    path = project / "config/openclaw-auth.private.json"
-    if path.is_file():
-        private.update(json.loads(path.read_text()).get("profiles", {}))
-    hermes_auth = project / ".local/native/hermes/auth.json"
-    if hermes_auth.is_file():
-        def visit(value):
-            if isinstance(value, dict):
-                for key, child in value.items():
-                    if isinstance(child, str) and child and re.search(r"(?:key|token|password|secret|email|account_id|user_id|profile_id)$", key, re.I):
-                        private.add(child)
-                    visit(child)
-            elif isinstance(value, list):
-                for child in value:
-                    visit(child)
-        visit(json.loads(hermes_auth.read_text()))
-    return private
 
 
 def find_issues(text, private):

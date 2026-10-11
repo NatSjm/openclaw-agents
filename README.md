@@ -1,216 +1,320 @@
-# OpenClaw agent team and Hermes
+# Research Report Agent Team
 
-Give this folder to **Claude Code or Codex** and ask it to work through setup
-step by step with/for you. Start with this prompt:
+A working multi-agent system that solves one real task: **you send a topic in
+Telegram, and a team of agents researches it on the web, writes a sourced
+report, sends it back, and remembers your preferences and past reports.**
 
-> Read AGENTS.md and README.md. Help me run the OpenClaw agent team and Hermes
-> on this host. Check existing installations, ports and runtime state. Follow
-> the Docker Compose route unless I choose native execution. Set up private
-> Tailscale access for both dashboards and keep them running in the background
-> with automatic restarts. Keep OpenClaw token authentication enabled. Walk me
-> through optional Telegram, Discord, AgentMail, GBrain and Paperclip setup if I
-> want them. Explain each change, let me enter credentials privately, and verify
-> each step with me.
+Built on [OpenClaw](https://github.com/openclaw/openclaw) `2026.9.8` in Docker,
+with Jaeger for tracing. Developed and tested on **Windows 10/11 + Docker
+Desktop**; the same Docker commands work on macOS and Linux.
 
-**OpenClaw** runs a team of agents on one Gateway: Chief of Staff plus eight
-specialists. Talk to Chief of Staff in the dashboard or through a connected
-chat channel; it answers directly or delegates to a specialist and reports the
-returned result. You can also address any specialist directly. **Hermes** runs
-as a personal assistant for planning, notes, and drafting messages. Both use
-editable templates and your own provider account.
+```mermaid
+flowchart LR
+    U([You in Telegram]) -->|topic| C[🧭 Coordinator<br/>main]
+    C -->|brief: sessions_spawn| R[🔎 Researcher<br/>web_search · web_fetch]
+    R -->|findings + URLs| C
+    C -->|findings + preferences| W[✍️ Writer<br/>no web access]
+    W -->|report text| C
+    C -->|report| U
+    C <-->|MEMORY.md · memory/ · reports/| M[(Persistent memory<br/>workspace volume)]
+    X([External agent<br/>scripts/a2a_client.py]) -->|A2A 1.0 JSON-RPC| R
+    C & R & W -.->|OpenTelemetry| J[Jaeger UI<br/>traces · tool calls · errors]
+```
 
-OpenClaw and Hermes are independent runtimes; neither is the other's model
-provider. Each connects to the model provider you select during its own login.
+## How the homework requirements are covered
 
-| Setup | What works |
+| # | Requirement | Implementation | How to check |
+| --- | --- | --- | --- |
+| 1 | ≥2 agents with different roles, instructions and access; a model; a tool or MCP | **Coordinator**, **Researcher**, **Writer** — each has its own workspace and `AGENTS.md`. Tool limits in [`config/openclaw.json`](config/openclaw.json): Writer has no web tools; Researcher and Writer cannot delegate; only the Coordinator can; nobody can run shell commands; file access is limited to each agent's own workspace. Model: OpenAI `gpt-5.5`. Tools: `web_search` (key-free [Parallel Search](https://docs.parallel.ai/integrations/mcp/search-mcp) plugin), `web_fetch`, `read`/`write`, `memory_search`/`memory_get`, `sessions_spawn`. | [Step 3](#step-3--check-the-agents-and-their-boundaries) |
+| 2 | Persistent memory reused after a restart in a new conversation | Markdown memory files in each workspace (`MEMORY.md`, `memory/*.md`, `reports/`) on the Docker volume `openclaw-workspace`, plus OpenClaw's memory search. Sessions and auth live in the volume `openclaw-state`. | [Step 5](#step-5--persistent-memory-across-a-restart) |
+| 3 | Communication channel | **Telegram** bot (long polling, no public URL) bound to the Coordinator. | [Step 4](#step-4--order-a-report-in-telegram) |
+| 4 | Collaboration via A2A | (a) Inside the team: Coordinator → Researcher → Coordinator → Writer handoffs with `sessions_spawn`/`sessions_yield`. (b) The standard **A2A 1.0 protocol**: public Agent Card + authenticated JSON-RPC endpoint; an external agent ([`scripts/a2a_client.py`](scripts/a2a_client.py)) delegates to the Researcher. | [Step 4](#step-4--order-a-report-in-telegram), [Step 6](#step-6--a2a-protocol-from-an-external-agent) |
+| 5 | Observability | **Jaeger** receives OpenTelemetry traces from OpenClaw's `diagnostics-otel` plugin: every run, model call, tool call (incl. `sessions_spawn` handoffs), channel, outcome and error, tagged with the agent. The OpenClaw **Control UI** additionally shows each session's transcript and child sessions. | [Step 7](#step-7--observability-in-jaeger-and-the-dashboard) |
+
+## Prerequisites
+
+- Windows 10/11 with [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)
+  (WSL 2 backend) running. About 6 GB free disk; 4 GB RAM for Docker is enough.
+- [Git](https://git-scm.com/download/win).
+- An **OpenAI API key** with access to `gpt-5.5`
+  ([platform.openai.com/api-keys](https://platform.openai.com/api-keys)). A full
+  report run costs a few cents.
+- A **Telegram** account.
+- Optional: Python 3.9+ (only for the unit tests and running the A2A client on the host).
+
+No Node.js, OpenClaw, or Python installation on the host is required:
+everything runs in containers. Ports used (loopback only): `18789` (OpenClaw)
+and `16686` (Jaeger).
+
+## Setup
+
+### Step 1 — Clone
+
+```powershell
+git clone https://github.com/<you>/<this-repo>.git
+cd <this-repo>
+```
+
+### Step 2 — Create the Telegram bot and run setup
+
+1. In Telegram open [@BotFather](https://t.me/BotFather), send `/newbot`, pick
+   a name and username, and copy the token it gives you.
+2. Run setup. The first run creates the private file `.local\openclaw.env`
+   (ignored by Git), generates the dashboard and A2A tokens, and opens it in
+   Notepad:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\setup.ps1
+   ```
+
+3. In Notepad fill `OPENAI_API_KEY=` and `TELEGRAM_BOT_TOKEN=`, save, close.
+4. Run the same command again. It pulls the pinned images (~3.5 GB on first
+   run), installs the agent config into the Docker volume, registers the
+   OpenAI key for all three agents and starts the containers. The first
+   gateway start takes 3–5 minutes. It ends with:
+
+   ```text
+   ==> Done
+   Dashboard (OpenClaw Control UI): http://127.0.0.1:18789
+   Tracing (Jaeger UI):              http://127.0.0.1:16686   service: openclaw-research-team
+   ```
+
+`setup.ps1` is safe to re-run at any time (after editing the config, or to add
+the Telegram token later); tokens, memory and sessions are kept.
+
+All later commands use this shortcut for the OpenClaw CLI inside the container:
+
+```powershell
+function oc { docker compose exec openclaw openclaw @args }
+```
+
+### Step 2b — Log in to the dashboard and pair Telegram
+
+**Dashboard.** Open <http://127.0.0.1:18789>. Paste `OPENCLAW_GATEWAY_TOKEN`
+from `.local\openclaw.env` into the login form. If it says *pairing required*,
+approve your browser:
+
+```powershell
+oc devices list
+oc devices approve <requestId>
+```
+
+**Telegram.** Send any message (e.g. `hi`) to your bot. It answers with a
+pairing code. Approve it:
+
+```powershell
+oc pairing list telegram
+oc pairing approve telegram <CODE>
+```
+
+Only approved Telegram accounts can talk to the bot.
+
+**Smoke test.** Send `Reply with just: Ready` to the bot (or in the dashboard
+chat). A reply proves the model key works, not only container health.
+
+## Run the scenario
+
+Each step below demonstrates one homework requirement. Example messages are
+in Ukrainian; any language works.
+
+### Step 3 — Check the agents and their boundaries
+
+```powershell
+oc agents list
+oc config get agents.entries.researcher.tools
+oc config get agents.entries.writer.tools
+oc config get tools.deny
+```
+
+Expected: `main (Coordinator)`, `researcher (Researcher)`, `writer (Writer)`;
+Writer denies `group:web`; Researcher and Writer deny `sessions_spawn`;
+`exec` is denied globally; `main` has no per-agent deny list.
+
+Why the Coordinator has no `group:web` deny: in OpenClaw a spawned child runs
+under its parent's tool policy as well as its own, so denying web tools on the
+Coordinator would also strip them from the Researcher it delegates to. The
+Coordinator is kept out of research by its instructions instead, and the
+Jaeger traces (Step 7) show that `web_search` and `web_fetch` are called only
+by `researcher`. Role instructions:
+[Coordinator](openclaw/workspace/AGENTS.md),
+[Researcher](openclaw/workspace/agents/researcher/AGENTS.md),
+[Writer](openclaw/workspace/agents/writer/AGENTS.md).
+
+Boundary test — in the dashboard pick the **Writer** agent and ask
+`Find today's EUR/UAH exchange rate on the web.` It has no web tool and says
+so; the Jaeger trace for that run contains no `web_*` tool span.
+
+### Step 4 — Order a report in Telegram
+
+1. Teach a preference first (used in Step 5):
+
+   > Запам'ятай: мої звіти мають бути українською, до 400 слів, обов'язково з розділом «Джерела».
+
+   The Coordinator writes it to `openclaw/workspace/MEMORY.md` and confirms.
+
+2. Order a report:
+
+   > Підготуй звіт: які open-source фреймворки для мультиагентних систем найпопулярніші у 2026 році та чим вони відрізняються?
+
+What happens (2–5 minutes):
+
+- Coordinator replies that the team started, then calls `sessions_spawn` →
+  **Researcher** (web search + fetch, saves `memory/sources-<topic>.md`).
+- Coordinator passes the findings to **Writer** via `sessions_spawn`; Writer
+  saves `output/<date>-<slug>.md` in its workspace and returns the text.
+- Coordinator saves `openclaw/workspace/reports/<date>-<slug>.md`, adds a line
+  to `memory/report-index.md`, and sends you the report naming who did what.
+
+The files live in the Docker volume. Read them from PowerShell:
+
+```powershell
+docker compose exec openclaw cat /project/openclaw/workspace/MEMORY.md
+docker compose exec openclaw cat /project/openclaw/workspace/memory/report-index.md
+docker compose exec openclaw ls -R /project/openclaw/workspace/reports /project/openclaw/workspace/agents
+```
+
+Or copy the whole workspace to a Windows folder (ignored by Git) to open it in
+an editor:
+
+```powershell
+docker compose cp openclaw:/project/openclaw/workspace .\workspace-snapshot
+```
+
+### Step 5 — Persistent memory across a restart
+
+```powershell
+docker compose restart openclaw
+```
+
+Wait until <http://127.0.0.1:18789/healthz> answers (1–3 minutes), then in
+Telegram send `/new` (starts a fresh conversation without history) and ask:
+
+> Які звіти ми вже робили і які в мене вимоги до формату звітів?
+
+The Coordinator answers from `MEMORY.md` and `memory/report-index.md` — the
+preference from Step 4 and the report topic — although the new conversation
+has no previous messages. Ordering a new report now applies the preference
+without repeating it. Memory also survives `docker compose down` / `up -d`
+because it is stored in the `openclaw-workspace` volume (only `down -v`
+deletes it).
+
+### Step 6 — A2A protocol from an external agent
+
+The gateway publishes a standard A2A Agent Card and accepts authenticated
+JSON-RPC tasks, routed to the Researcher:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:18789/.well-known/agent-card.json | ConvertTo-Json -Depth 5
+```
+
+Run the external agent in its own container on the compose network (the
+bearer token comes from the private env file and is never printed):
+
+```powershell
+docker compose run --rm --no-deps -v ./scripts:/scripts:ro --entrypoint python3 openclaw /scripts/a2a_client.py --url http://openclaw:18789 "Find 3 recent sources about the A2A protocol and summarise each in one line."
+```
+
+Expected output: `[discover] Agent Card: Researcher | protocol 1.0 JSONRPC`,
+`[task] … state=TASK_STATE_WORKING`, polling, then `TASK_STATE_COMPLETED` and
+the Researcher's answer. A wrong token is rejected (see `channels.a2a` in the
+config). With Python on the host: `python scripts/a2a_client.py "<question>"`.
+
+### Step 7 — Observability in Jaeger and the dashboard
+
+Open <http://127.0.0.1:16686>, choose service **openclaw-research-team**,
+click **Find Traces**. Useful spans and tags:
+
+| Span | Shows |
 | --- | --- |
-| OpenClaw, without a messenger | The whole team through its dashboard or CLI, including delegation |
-| OpenClaw with Discord or Telegram | The same team through chat; Discord can give each agent its own bot |
-| Without OpenClaw | Hermes still works with its own model login and optional Telegram gateway; the OpenClaw team and its Discord bots do not run |
-| Without Docker | Use the native route; the agents and capabilities are the same |
+| `openclaw.message.processed` | an incoming message: `openclaw.channel` = `telegram` / `a2a` / `webchat`, outcome |
+| `openclaw.run`, `openclaw.harness.run` | one agent run: `openclaw.agent` = `main` / `researcher` / `writer`, outcome |
+| `openclaw.model.call` | each LLM call: model, tokens, latency, `error.type` on failures |
+| `openclaw.tool.execution` | each tool call: `gen_ai.tool.name` (`sessions_spawn` = handoff to a teammate, `web_fetch`, `memory_search`, `write`…), blocked/denied calls, errors |
+| `openclaw.context.assembled` | prompt/context sizes |
 
-The bundled setup and Tailscale helper configure both dashboards. For a
-Hermes-only setup, install Hermes and use its launcher commands; do not run
-the combined Tailscale helper, which expects both runtimes. See
-[Hermes without OpenClaw](README-hermes.md#use-hermes-without-openclaw).
+Search by tag, e.g. `openclaw.agent=researcher` or `error=true`. Content
+capture is on (`diagnostics.otel.captureContent`), so tool spans include the
+handoff brief and results — keep Jaeger on localhost.
 
-Starting permissions: OpenClaw agents read and write inside their own
-workspace, run shell commands from an approval allowlist (unlisted commands ask
-first), use memory tools and the skill workshop, and delegate to each other
-(depth 2, two children per agent, four concurrent, ten-minute runs). Browser,
-web, messaging tools, MCP connectors, automations, and scheduling are off.
-Hermes has file tools, shell commands, Python execution, skills, conversation
-recall, memory, planning, and clarification. These rules are not an
-operating-system sandbox. See the [Hermes guide](README-hermes.md) for its
-permissions and example tasks.
+To see an error trace on purpose, temporarily put a wrong `OPENAI_API_KEY` in
+`.local\openclaw.env`, rerun `setup.ps1`, and send any message: the trace shows
+`openclaw.model.call` with an error and `openclaw.message.processed` with
+outcome `error`. Restore the key and rerun `setup.ps1`.
 
-## The team
+In the **Control UI** (<http://127.0.0.1:18789>) → **Sessions**, open the
+Coordinator's Telegram session: the transcript shows each tool call with its
+arguments and result, and the child sessions of Researcher and Writer.
 
-For a first demo, start with Chief of Staff, CTO, SWE, and QA. The other five
-specialists are available when their roles are useful; you do not need to set
-up Discord bots for all nine agents.
+Jaeger keeps traces in memory; they reset when the Jaeger container restarts.
 
-| Agent | ID | Focus |
-| --- | --- | --- |
-| [Chief of Staff](openclaw/workspace/AGENTS.md) | `main` | Triage, delegation, and combining returned results |
-| [CTO](openclaw/workspace/agents/cto/AGENTS.md) | `cto` | Technical decisions, briefs for SWE, verification through QA |
-| [SWE](openclaw/workspace/agents/swe/AGENTS.md) | `swe` | Implementation from a brief, with checks that match the change |
-| [QA](openclaw/workspace/agents/qa/AGENTS.md) | `qa` | Verification against acceptance criteria, findings with evidence |
-| [UI/UX](openclaw/workspace/agents/ui-ux/AGENTS.md) | `ui-ux` | User flows, accessible interfaces, design specifications, usability reviews |
-| [Content](openclaw/workspace/agents/content/AGENTS.md) | `content` | Articles, website copy, scripts, documentation, editing, translation |
-| [Generalist](openclaw/workspace/agents/generalist/AGENTS.md) | `generalist` | Research, analysis, planning, and tasks spanning several disciplines |
-| [Infrastructure](openclaw/workspace/agents/infrastructure/AGENTS.md) | `infrastructure` | Environments, CI/CD, configuration, observability, reliability, incident diagnosis |
-| [Sales](openclaw/workspace/agents/sales/AGENTS.md) | `sales` | Account research, discovery, outreach drafts, proposals, follow-up plans |
+## Operate
 
-Each agent has its own workspace with `AGENTS.md` (role and team-delegation
-rules), `IDENTITY.md`, `SOUL.md`, and `USER.md`. Chief of Staff uses
-`openclaw/workspace/`; the specialists use `openclaw/workspace/agents/<id>/`.
-All agents share the model, tool policy, and delegation limits in
-[`config/openclaw.json`](config/openclaw.json).
-
-Pick an agent in the dashboard, or from the terminal:
-
-```sh
-python3 scripts/native.py openclaw agents list
-python3 scripts/native.py openclaw agent --agent cto --message "Plan a small CLI that prints a greeting."
+```powershell
+docker compose ps                         # status
+docker compose logs --tail=80 openclaw    # gateway logs (may contain private data)
+docker compose stop                       # stop, keep everything
+docker compose up -d                      # start again
+oc channels status --probe                # Telegram / A2A health
 ```
 
-Delegation uses OpenClaw's `sessions_spawn` and `sessions_yield`: the
-requesting agent sends a brief, the teammate works in its own workspace, and
-the result returns to the requesting conversation. No chat channel is needed.
+- **Change the model**: edit `agents.defaults.model.primary` and the matching
+  key under `agents.defaults.models` in `config/openclaw.json`, then rerun
+  `setup.ps1`. List available models with `oc models list --provider openai`.
+- **Change agent behaviour**: edit `openclaw/workspace/**/AGENTS.md` (or
+  `SOUL.md`, `IDENTITY.md`) in the repository and rerun `setup.ps1`; it copies
+  the instruction files into the workspace volume without touching memory.
+  New conversations pick them up (`/new` in Telegram).
+- **Why a volume, not a bind mount**: on Docker Desktop for Windows a file
+  handle stops working after a rename on bind-mounted folders, and OpenClaw's
+  atomic file writes check exactly that, so every agent `write` failed. The
+  live workspace therefore lives in a Linux volume.
+- **Back up memory**: `docker compose cp openclaw:/project/openclaw/workspace .\workspace-snapshot`.
+- **Reset everything** (deletes sessions, pairing, the stored key **and all
+  agent memory and reports**): `docker compose down -v`.
 
-## Chat channels
+## Troubleshooting
 
-- **Telegram**, or any other single bot bound to `main`: one bot gives you the
-  whole team through Chief of Staff. See [README-integrations.md](README-integrations.md).
-- **Discord**, optional: one bot per agent, native `@` mentions, visible
-  CTO -> SWE -> QA handoffs in a channel, and a DM per agent. See
-  [README-discord-collaboration.md](README-discord-collaboration.md).
+| Symptom | Fix |
+| --- | --- |
+| `setup.ps1` cannot be loaded (execution policy) | Use the full command `powershell -ExecutionPolicy Bypass -File .\setup.ps1`. |
+| Gateway unhealthy for >5 min | `docker compose logs --tail=80 openclaw`; give Docker Desktop ≥4 GB RAM. |
+| Bot does not answer | `oc channels status --probe`; check the token; approve pairing (Step 2b). |
+| `401` / authentication failed in replies | Wrong `OPENAI_API_KEY`: fix it in `.local\openclaw.env`, save, then **rerun `setup.ps1`** — the container only reads that file when setup recreates it, so saving alone changes nothing. |
+| Model not available for your key | Pick another model (see *Change the model*). |
+| No traces in Jaeger | Traces arrive ~5 s after a run; check `docker compose ps jaeger`. |
 
-## Knowledge, memory and the board
+## Repository layout
 
-- **Knowledge vault.** `openclaw/workspace/knowledge/` is an Obsidian vault that
-  every team agent searches: folders for your company, clients, people,
-  projects, dated sources, decisions and checklists, with documented
-  conventions and no sample data. Agents keep their own notes separately.
-  See [memory and the vault](README-memory.md).
-- **GBrain, optional.** A shared keyword index and reference graph over the same
-  Markdown, read-only for the nine agents through MCP, with optional capture of
-  new conversations per agent. See [GBrain](README-gbrain.md).
-- **Paperclip, optional.** A control plane that assigns tasks to the OpenClaw
-  agents, records every run, enforces human review and reported-cost budgets,
-  and runs routines. Pinned in `paperclip/`; served privately through Tailscale
-  in authenticated mode. See [Paperclip](README-paperclip.md).
-
-## Make the assistants yours
-
-Replace bracketed placeholders such as `[Your name]` and `[Company or team name]`
-with the details you want each assistant to use. Unfilled placeholders are
-treated as unknown details.
-
-| Context | OpenClaw | Hermes |
-| --- | --- | --- |
-| Name and role | [IDENTITY.md](openclaw/workspace/IDENTITY.md), `agents/<id>/IDENTITY.md` | [SOUL.md](hermes/context/SOUL.md) |
-| Tone and working style | [SOUL.md](openclaw/workspace/SOUL.md), `agents/<id>/SOUL.md` | [SOUL.md](hermes/context/SOUL.md) |
-| Your preferences | [USER.md](openclaw/workspace/USER.md), `agents/<id>/USER.md` | [USER.md](hermes/context/USER.md) |
-| Working rules | [AGENTS.md](openclaw/workspace/AGENTS.md), `agents/<id>/AGENTS.md` | [AGENTS.md](hermes/project/AGENTS.md) |
-| Durable facts | [MEMORY.md](openclaw/workspace/MEMORY.md) | [MEMORY.md](hermes/context/MEMORY.md) |
-| Shared knowledge | [knowledge/](openclaw/workspace/knowledge/README.md) | reads the same folder on request |
-| Skills | [skills/meeting-brief](openclaw/workspace/skills/meeting-brief/SKILL.md) | - |
-
-Chief of Staff's [PROJECT.md](openclaw/workspace/PROJECT.md) has placeholders
-for your project's goal, stack, source material, and constraints. Supply real
-documents or code when asking for help. New deliverables default to `output/`
-inside the agent's workspace unless you request another location there. The
-`meeting-brief` skill is an example workspace skill; agents can create more
-with the skill workshop.
-
-Hermes uses `hermes/project/` and copies `hermes/context/` into private state
-during first initialization; edit the active private context for an existing
-Hermes profile. Reusable single-assistant templates live under `demo/`;
-`demo/stage.py init PATH` creates a workspace in an empty destination.
-
-These context files are versioned. Keep private company information, personal
-details, and credentials out of commits to a public repository. The templates
-describe behavior; available tools and access depend on the runtime
-configuration.
-
-## Choose a route
-
-| Route | Instructions | Private account state |
-| --- | --- | --- |
-| Docker Compose | [README-docker.md](README-docker.md) | Three named Docker volumes |
-| Native, without Docker or Compose | [README-native.md](README-native.md) | `.local/native/` in this checkout |
-
-Both routes register the same agent team. The Discord helper and the skill
-folder apply to the native route. Both routes use
-[Tailscale Serve](README-tailscale.md) on the **host**:
-
-| Assistant | Local listener | Private HTTPS dashboard |
-| --- | --- | --- |
-| OpenClaw | `http://127.0.0.1:18789` | `https://HOST.TAILNET.ts.net:8443` |
-| Hermes | `http://127.0.0.1:9119` | `https://HOST.TAILNET.ts.net:8444` |
-| Paperclip, optional | `http://127.0.0.1:3100` | `https://HOST.TAILNET.ts.net:8445`, authenticated mode only |
-
-Use one route at a time: both use the same ports and project files. Docker and
-native account settings are separate; each needs its own model login. Existing
-host profiles stay separate. Native commands select this checkout's chosen
-state explicitly. A second native checkout on the same host can move its
-Gateway with `OPENCLAW_GATEWAY_PORT` in `.env`; GBrain and Paperclip ports are
-selectable the same way.
-
-## Configuration and credentials
-
-Native OpenClaw selects its active configuration from
-[`config/openclaw.json`](config/openclaw.json): the agent roster, tool policy,
-and delegation limits, with launcher variables for every path. Dashboard
-settings save to that file, so reviewed changes can be committed. The public
-starter has no selected provider account or enabled messaging channel. Complete
-your own model login and optional integrations. Credentials belong in private
-state or the ignored root `.env`; supported JSON fields use environment
-references. The tracked [`.env.example`](.env.example) documents the variables
-without credentials or personal data. Run `python3 scripts/check_config_privacy.py`
-and review the diff before committing UI changes.
-
-The native launcher reads `.env` and explicitly selects the configuration and
-private state paths. Native state defaults to `.local/native/`; an existing
-installation can select its own state directory to retain accounts and sessions.
-Docker keeps its active config and account state in private volumes, built from
-the same tracked roster and `config/openclaw-policy.patch.json`.
-
-See [configuration and version control](README-configuration.md) for the file
-layout, runtime paths, secret references and safe Git commands. Before
-publishing a customized checkout, follow the
-[publication checks](README-publication.md), including Git history.
-
-Dashboard login is covered in [the Tailscale guide](README-tailscale.md#dashboard-security-token).
-Connect chat and email using [README-integrations.md](README-integrations.md)
-and [README-discord-collaboration.md](README-discord-collaboration.md).
-
-## Start again after setup
-
-From the repository root, for Docker:
-
-```sh
-docker compose up -d
-python3 scripts/tailscale.py --mode docker
+```text
+setup.ps1                     one-command Windows setup (idempotent)
+docker-compose.yml            OpenClaw gateway + Jaeger, ports on 127.0.0.1 only
+config/openclaw.json          agents, tool boundaries, Telegram, A2A, tracing (no secrets)
+docker/init.py                installs the config into the volume, keeps runtime state
+.env.example                  template for the private .local/openclaw.env
+openclaw/workspace/           Coordinator workspace (AGENTS.md, SOUL.md, IDENTITY.md, ...)
+  agents/researcher/          Researcher workspace and instructions
+  agents/writer/              Writer workspace and instructions
+  knowledge/                  optional shared notes all agents can search
+                              (setup copies this folder into the workspace volume)
+scripts/a2a_client.py         external A2A agent (standard library only)
+scripts/check_*.py, test_*.py privacy/publication checks and unit tests
+setup-notes.md                what was verified, versions, known limits
 ```
 
-For native execution, start each process in its own terminal as described in
-[README-native.md](README-native.md#start-again), or use its
-[background-service instructions](README-native.md#keep-running-in-the-background).
-Then run:
+## Security notes
 
-```sh
-python3 scripts/tailscale.py --mode native
+- Secrets live only in `.local/openclaw.env` and the Docker volume; both are
+  outside Git. The tracked config references them as `${VAR}` / env SecretRefs.
+- Both web UIs listen on `127.0.0.1` only. Telegram uses outbound long polling.
+- Telegram access requires pairing approval; A2A requires a bearer token.
+- Agents cannot run shell commands, and file tools are limited to each
+  agent's own workspace.
+- Live memory, reports and agent outputs are ignored by Git (see `.gitignore`).
+
+Before publishing a fork, run the checks:
+
+```powershell
+python -m unittest discover -s scripts -p "test_*.py"
+python scripts/check_config_privacy.py
+python scripts/check_publication.py --history
 ```
-
-Docker's `-d` runs both in the background; both already have
-`restart: unless-stopped`. Enable Docker and Tailscale at host startup/login
-and keep the host awake. See [Docker background operation](README-docker.md#keep-running-in-the-background).
-
-The reference releases are OpenClaw `2026.9.8`, Hermes `v2026.9.24` (`0.21.5`),
-GBrain `0.60.37.0`, and Paperclip `2026.1001.0`. See [setup-notes.md](setup-notes.md)
-for verification results. Keep keys, sessions and personal memory in ignored
-private state; commit reviewed persona and configuration changes using
-explicit paths.

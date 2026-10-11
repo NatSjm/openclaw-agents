@@ -1,9 +1,10 @@
 # Team knowledge vault
 
-Shared notes that every team agent searches through its memory tools and, when
-configured, through GBrain. Open this folder as an Obsidian vault. It starts
-empty: add your own notes in the folders below. Chief of Staff writes here;
-specialists read and return proposed corrections.
+Shared reference notes that all three agents (Coordinator, Researcher, Writer)
+search through `memory_search`. Open this folder as an Obsidian vault. It starts
+empty: add your own background material here (for example, a note about your
+company or a list of trusted sources) and the Researcher will use it before
+searching the web.
 
 ## Layout
 

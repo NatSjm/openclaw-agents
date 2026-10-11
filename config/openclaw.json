@@ -1,7 +1,8 @@
 {
   "gateway": {
     "mode": "local",
-    "bind": "loopback",
+    "bind": "lan",
+    "port": 18789,
     "auth": {
       "mode": "token",
       "allowTailscale": false,
@@ -20,7 +21,6 @@
     "cliAgents": {
       "enabled": false
     },
-    "port": 18789,
     "controlUi": {
       "allowedOrigins": [
         "http://127.0.0.1:18789",
@@ -35,26 +35,29 @@
       "heartbeat": {
         "every": "0m"
       },
-      "workspace": "${OPENCLAW_WORKSPACE_DIR}",
+      "workspace": "/project/openclaw/workspace",
+      "model": {
+        "primary": "openai/gpt-5.5"
+      },
+      "models": {
+        "openai/gpt-5.5": {
+          "agentRuntime": {
+            "id": "openclaw"
+          }
+        }
+      },
       "systemAgent": {
         "agentId": "main"
       },
       "subagents": {
         "allowAgents": [
-          "main",
-          "cto",
-          "swe",
-          "qa",
-          "ui-ux",
-          "content",
-          "generalist",
-          "infrastructure",
-          "sales"
+          "researcher",
+          "writer"
         ],
         "requireAgentId": true,
-        "maxSpawnDepth": 2,
+        "maxSpawnDepth": 1,
         "maxChildrenPerAgent": 2,
-        "maxConcurrent": 4,
+        "maxConcurrent": 2,
         "runTimeoutSeconds": 600,
         "delegationMode": "suggest"
       },
@@ -67,202 +70,103 @@
     "ownership": "explicit",
     "entries": {
       "main": {
-        "name": "Chief of Staff",
-        "workspace": "${OPENCLAW_WORKSPACE_DIR}",
-        "agentDir": "${OPENCLAW_AGENT_DIR}",
+        "name": "Coordinator",
+        "workspace": "/project/openclaw/workspace",
         "identity": {
-          "name": "Chief of Staff"
-        },
-        "groupChat": {
-          "mentionPatterns": [
-            "@ChiefOfStaff\\b",
-            "@CoS\\b"
-          ]
-        },
-        "memory": {
-          "search": {
-            "extraPaths": [
-              "${OPENCLAW_WORKSPACE_DIR}/knowledge"
-            ]
-          }
-        }
-      },
-      "cto": {
-        "name": "CTO",
-        "workspace": "${OPENCLAW_WORKSPACE_DIR}/agents/cto",
-        "agentDir": "${OPENCLAW_STATE_DIR}/agents/cto/agent",
-        "identity": {
-          "name": "CTO",
+          "name": "Coordinator",
           "emoji": "🧭",
-          "theme": "Calm, decisive, and practical."
-        },
-        "groupChat": {
-          "mentionPatterns": [
-            "@CTO\\b"
-          ]
+          "theme": "Organised, brief, and accountable."
         },
         "memory": {
           "search": {
             "extraPaths": [
-              "${OPENCLAW_WORKSPACE_DIR}/knowledge"
+              "/project/openclaw/workspace/knowledge"
             ]
           }
         }
       },
-      "swe": {
-        "name": "SWE",
-        "workspace": "${OPENCLAW_WORKSPACE_DIR}/agents/swe",
-        "agentDir": "${OPENCLAW_STATE_DIR}/agents/swe/agent",
+      "researcher": {
+        "name": "Researcher",
+        "workspace": "/project/openclaw/workspace/agents/researcher",
         "identity": {
-          "name": "SWE",
-          "emoji": "🛠️",
-          "theme": "Focused, careful, and straightforward."
-        },
-        "groupChat": {
-          "mentionPatterns": [
-            "@SWE\\b"
-          ]
-        },
-        "memory": {
-          "search": {
-            "extraPaths": [
-              "${OPENCLAW_WORKSPACE_DIR}/knowledge"
-            ]
-          }
-        }
-      },
-      "qa": {
-        "name": "QA",
-        "workspace": "${OPENCLAW_WORKSPACE_DIR}/agents/qa",
-        "agentDir": "${OPENCLAW_STATE_DIR}/agents/qa/agent",
-        "identity": {
-          "name": "QA",
+          "name": "Researcher",
           "emoji": "🔎",
-          "theme": "Calm, skeptical, and evidence-first."
-        },
-        "groupChat": {
-          "mentionPatterns": [
-            "@QA\\b"
-          ]
+          "theme": "Curious, sceptical, and source-driven."
         },
         "memory": {
           "search": {
             "extraPaths": [
-              "${OPENCLAW_WORKSPACE_DIR}/knowledge"
+              "/project/openclaw/workspace/knowledge"
             ]
           }
-        }
-      },
-      "ui-ux": {
-        "name": "UI/UX",
-        "workspace": "${OPENCLAW_WORKSPACE_DIR}/agents/ui-ux",
-        "agentDir": "${OPENCLAW_STATE_DIR}/agents/ui-ux/agent",
-        "identity": {
-          "name": "UI/UX",
-          "emoji": "🎨",
-          "theme": "Observant, thoughtful, and precise."
         },
-        "groupChat": {
-          "mentionPatterns": [
-            "@UIUX\\b",
-            "@UI-UX\\b"
+        "tools": {
+          "deny": [
+            "sessions_spawn",
+            "sessions_yield",
+            "subagents"
           ]
-        },
-        "memory": {
-          "search": {
-            "extraPaths": [
-              "${OPENCLAW_WORKSPACE_DIR}/knowledge"
-            ]
-          }
         }
       },
-      "content": {
-        "name": "Content",
-        "workspace": "${OPENCLAW_WORKSPACE_DIR}/agents/content",
-        "agentDir": "${OPENCLAW_STATE_DIR}/agents/content/agent",
+      "writer": {
+        "name": "Writer",
+        "workspace": "/project/openclaw/workspace/agents/writer",
         "identity": {
-          "name": "Content",
+          "name": "Writer",
           "emoji": "✍️",
-          "theme": "Clear, curious, and attentive to voice."
-        },
-        "groupChat": {
-          "mentionPatterns": [
-            "@Content\\b"
-          ]
+          "theme": "Clear, structured, and faithful to sources."
         },
         "memory": {
           "search": {
             "extraPaths": [
-              "${OPENCLAW_WORKSPACE_DIR}/knowledge"
+              "/project/openclaw/workspace/knowledge"
             ]
           }
+        },
+        "tools": {
+          "deny": [
+            "group:web",
+            "sessions_spawn",
+            "sessions_yield",
+            "subagents"
+          ]
         }
-      },
-      "generalist": {
-        "name": "Generalist",
-        "workspace": "${OPENCLAW_WORKSPACE_DIR}/agents/generalist",
-        "agentDir": "${OPENCLAW_STATE_DIR}/agents/generalist/agent",
-        "identity": {
-          "name": "Generalist",
-          "emoji": "🧩",
-          "theme": "Resourceful, adaptable, and grounded."
-        },
-        "groupChat": {
-          "mentionPatterns": [
-            "@Generalist\\b"
-          ]
-        },
-        "memory": {
-          "search": {
-            "extraPaths": [
-              "${OPENCLAW_WORKSPACE_DIR}/knowledge"
-            ]
-          }
+      }
+    }
+  },
+  "bindings": [
+    {
+      "agentId": "main",
+      "match": {
+        "channel": "telegram"
+      }
+    },
+    {
+      "agentId": "researcher",
+      "match": {
+        "channel": "a2a",
+        "peer": {
+          "kind": "direct",
+          "id": "homework-client"
         }
-      },
-      "infrastructure": {
-        "name": "Infrastructure",
-        "workspace": "${OPENCLAW_WORKSPACE_DIR}/agents/infrastructure",
-        "agentDir": "${OPENCLAW_STATE_DIR}/agents/infrastructure/agent",
-        "identity": {
-          "name": "Infrastructure",
-          "emoji": "🏗️",
-          "theme": "Methodical, steady, and operationally precise."
-        },
-        "groupChat": {
-          "mentionPatterns": [
-            "@Infrastructure\\b",
-            "@Infra\\b"
-          ]
-        },
-        "memory": {
-          "search": {
-            "extraPaths": [
-              "${OPENCLAW_WORKSPACE_DIR}/knowledge"
-            ]
-          }
-        }
-      },
-      "sales": {
-        "name": "Sales",
-        "workspace": "${OPENCLAW_WORKSPACE_DIR}/agents/sales",
-        "agentDir": "${OPENCLAW_STATE_DIR}/agents/sales/agent",
-        "identity": {
-          "name": "Sales",
-          "emoji": "🤝",
-          "theme": "Curious, commercially aware, and respectful."
-        },
-        "groupChat": {
-          "mentionPatterns": [
-            "@Sales\\b"
-          ]
-        },
-        "memory": {
-          "search": {
-            "extraPaths": [
-              "${OPENCLAW_WORKSPACE_DIR}/knowledge"
-            ]
-          }
+      }
+    }
+  ],
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "pairing",
+      "groupPolicy": "disabled"
+    },
+    "a2a": {
+      "enabled": true,
+      "exposeAgents": [
+        "researcher"
+      ],
+      "replyTimeoutMs": 300000,
+      "peers": {
+        "homework-client": {
+          "token": "${A2A_CLIENT_TOKEN}"
         }
       }
     }
@@ -275,18 +179,18 @@
     "alsoAllow": [
       "read",
       "write",
-      "exec",
-      "skill_workshop",
       "group:memory",
+      "group:web",
       "sessions_spawn",
       "sessions_yield",
       "subagents"
     ],
     "deny": [
+      "exec",
+      "process",
       "edit",
       "apply_patch",
       "group:automation",
-      "group:web",
       "group:ui",
       "group:messaging",
       "group:nodes",
@@ -295,9 +199,6 @@
     ],
     "fs": {
       "workspaceOnly": true
-    },
-    "exec": {
-      "mode": "ask"
     },
     "elevated": {
       "enabled": false
@@ -311,7 +212,16 @@
     "codeMode": {
       "enabled": false
     },
-    "toolSearch": false
+    "toolSearch": false,
+    "web": {
+      "search": {
+        "enabled": true,
+        "provider": "parallel-free"
+      },
+      "fetch": {
+        "enabled": true
+      }
+    }
   },
   "browser": {
     "enabled": false
@@ -327,8 +237,35 @@
       "mode": "off"
     }
   },
+  "diagnostics": {
+    "enabled": true,
+    "otel": {
+      "enabled": true,
+      "endpoint": "http://jaeger:4318",
+      "protocol": "http/protobuf",
+      "serviceName": "openclaw-research-team",
+      "traces": true,
+      "metrics": false,
+      "logs": false,
+      "sampleRate": 1,
+      "flushIntervalMs": 5000,
+      "captureContent": true
+    }
+  },
   "plugins": {
     "entries": {
+      "parallel": {
+        "enabled": true
+      },
+      "diagnostics-otel": {
+        "enabled": true
+      },
+      "telegram": {
+        "enabled": true
+      },
+      "a2a": {
+        "enabled": true
+      },
       "anthropic": {
         "config": {
           "sessionCatalog": {
@@ -353,110 +290,8 @@
       }
     }
   },
-  "skills": {
-    "entries": {
-      "1password": {
-        "enabled": false
-      },
-      "apple-notes": {
-        "enabled": false
-      },
-      "apple-reminders": {
-        "enabled": false
-      },
-      "bear-notes": {
-        "enabled": false
-      },
-      "blucli": {
-        "enabled": false
-      },
-      "camsnap": {
-        "enabled": false
-      },
-      "coding-agent": {
-        "enabled": false
-      },
-      "eightctl": {
-        "enabled": false
-      },
-      "gifgrep": {
-        "enabled": false
-      },
-      "goplaces": {
-        "enabled": false
-      },
-      "himalaya": {
-        "enabled": false
-      },
-      "mcporter": {
-        "enabled": false
-      },
-      "model-usage": {
-        "enabled": false
-      },
-      "nano-pdf": {
-        "enabled": false
-      },
-      "obsidian": {
-        "enabled": false
-      },
-      "openai-whisper": {
-        "enabled": false
-      },
-      "openai-whisper-api": {
-        "enabled": false
-      },
-      "openhue": {
-        "enabled": false
-      },
-      "oracle": {
-        "enabled": false
-      },
-      "ordercli": {
-        "enabled": false
-      },
-      "peekaboo": {
-        "enabled": false
-      },
-      "sag": {
-        "enabled": false
-      },
-      "sherpa-onnx-tts": {
-        "enabled": false
-      },
-      "songsee": {
-        "enabled": false
-      },
-      "sonoscli": {
-        "enabled": false
-      },
-      "spotify-player": {
-        "enabled": false
-      },
-      "things-mac": {
-        "enabled": false
-      },
-      "tmux": {
-        "enabled": false
-      },
-      "trello": {
-        "enabled": false
-      }
-    },
-    "workshop": {
-      "autonomous": {
-        "mode": "auto"
-      }
-    }
-  },
-  "logging": {
-    "file": "${OPENCLAW_LOG_FILE}"
-  },
   "telemetry": {
     "enabled": false
-  },
-  "talk": {
-    "agentId": "main"
   },
   "memory": {
     "citations": "on",
@@ -465,8 +300,7 @@
       "provider": "none",
       "sources": [
         "memory"
-      ],
-      "rememberAcrossConversations": false
+      ]
     }
   }
 }

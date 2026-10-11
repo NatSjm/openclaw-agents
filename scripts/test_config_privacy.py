@@ -18,28 +18,20 @@ class ConfigPrivacyTests(unittest.TestCase):
         for value in (*private, "person@example.invalid"):
             self.assertNotIn(value, "\n".join(issues))
 
-    def test_environment_references_and_private_include_are_accepted(self):
-        data = {"model": "${OPENCLAW_PRIVATE_DEFAULT_MODEL}",
-                "auth": {"$include": "./openclaw-auth.private.json"},
-                "gateway": {"auth": {"token": {"source": "env", "provider": "default",
+    def test_environment_references_are_accepted(self):
+        data = {"gateway": {"auth": {"token": {"source": "env", "provider": "default",
                                                 "id": "OPENCLAW_GATEWAY_TOKEN"}}},
-                "agents": {"entries": {"main": {"workspace": "${OPENCLAW_WORKSPACE_DIR}"}}}}
+                "channels": {"a2a": {"peers": {"homework-client": {"token": "${A2A_CLIENT_TOKEN}"}}}},
+                "agents": {"entries": {"main": {"workspace": "/project/openclaw/workspace"}}}}
         self.assertEqual(find_issues(json.dumps(data), {"main", "synthetic-private-token"}), [])
 
-    def test_private_values_include_integration_secrets_and_profile_identifiers(self):
+    def test_private_values_come_from_the_private_env_file(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             (project / ".local").mkdir()
-            (project / "config").mkdir()
-            (project / ".env").write_text("OPENCLAW_PRIVATE_DEFAULT_MODEL='synthetic-session'\nDEMO_PROJECT='/public/path'\n")
-            (project / ".local/openclaw.env").write_text("AGENTMAIL_API_KEY='synthetic-api-key'\n")
-            hermes = project / ".local/native/hermes"
-            hermes.mkdir(parents=True)
-            (hermes / ".env").write_text("TELEGRAM_BOT_TOKEN='synthetic-hermes-token'\nTELEGRAM_ALLOWED_USERS='1122334455'\n")
-            (hermes / "auth.json").write_text('{"provider":{"access_token":"synthetic-oauth-token"}}')
-            (project / "config/openclaw-auth.private.json").write_text('{"profiles":{"openai:test":{}}}')
-            self.assertEqual(private_values(project), {"synthetic-session", "synthetic-api-key", "openai:test",
-                                                     "synthetic-hermes-token", "1122334455", "synthetic-oauth-token"})
+            (project / ".local/openclaw.env").write_text(
+                "OPENAI_API_KEY=synthetic-api-key\nTELEGRAM_BOT_TOKEN='synthetic-bot-token'\nTZ=Europe/Kyiv\n")
+            self.assertEqual(private_values(project), {"synthetic-api-key", "synthetic-bot-token"})
 
     def test_new_owner_identifier_is_detected_without_a_previous_env_value(self):
         text = '{"commands":{"ownerAllowFrom":["telegram:998877665"]}}'

@@ -13,7 +13,8 @@ PROJECT = Path(__file__).resolve().parent.parent
 EXAMPLE_DOMAINS = {"example.com", "example.org", "example.net", "example.invalid"}
 TOKEN = re.compile(r"(?:gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{32,}|\d{8,12}:[A-Za-z0-9_-]{30,})")
 KEY = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
-HOST_PATH = re.compile(r"/" + r"Users/(?!YOUR_USER\b|USERNAME\b)[^/\s\"']+")
+# macOS and Windows home-directory paths that include a personal account name.
+HOST_PATH = re.compile(r"(?:/|[A-Za-z]:\\)" + r"Users[/\\](?!YOUR_USER\b|USERNAME\b)[^/\\\s\"'`]+")
 
 
 def git(project, *args):
@@ -36,7 +37,7 @@ def known_private(project):
 def private_path(path):
     parts = Path(path).parts
     name = Path(path).name
-    return (any(p in {".git", ".local", ".openclaw", ".hermes", "output", "memory"} for p in parts)
+    return (any(p in {".git", ".local", ".openclaw", "output", "memory", "reports"} for p in parts)
             or (name.startswith(".env") and name != ".env.example")
             or ".private." in name
             or name.endswith((".pem", ".key", ".db", ".sqlite", ".sqlite3", ".log")))
@@ -55,7 +56,9 @@ def inspect_text(path, text, private):
     for match in EMAIL.finditer(text):
         value = match.group()
         domain = value.rsplit("@", 1)[1].lower()
-        public_author = path == "commit metadata" and domain == "users.noreply.github.com"
+        # GitHub private-email authors and service no-reply co-author trailers are public.
+        public_author = path == "commit metadata" and (
+            domain == "users.noreply.github.com" or value.lower().startswith("noreply@"))
         if domain not in EXAMPLE_DOMAINS and not value.startswith("YOUR_") and not public_author:
             issues.append("non-example email address")
             break
