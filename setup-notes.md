@@ -64,8 +64,13 @@ Executed:
       `read`, 2× `write` (report + index), `read`. All runs `completed`.
 - [x] Step 7: those spans are visible in Jaeger with `openclaw.agent` tags;
       `web_search`/`web_fetch` appear only under `researcher`.
-- [ ] Step 5: restart + `/new` memory recall (run by the user).
-- [ ] Step 6: A2A client with a real answer (run by the user).
+- [x] Step 5: after `docker compose restart openclaw` and `/new` in
+      Telegram, the Coordinator listed both earlier reports (topic, file,
+      takeaway) and the saved format preferences (Ukrainian, ≤400 words,
+      «Джерела» section), citing `memory/report-index.md` and `MEMORY.md`.
+- [x] Step 6: `scripts/a2a_client.py` in its own container discovered the
+      Agent Card and received a completed task from the Researcher with three
+      dated, sourced findings about the A2A protocol.
 
 Problems found and fixed during this run:
 
