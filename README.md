@@ -51,8 +51,8 @@ and `16686` (Jaeger).
 ### Step 1 — Clone
 
 ```powershell
-git clone https://github.com/<you>/<this-repo>.git
-cd <this-repo>
+git clone https://github.com/NatSjm/openclaw-agents.git
+cd openclaw-agents
 ```
 
 ### Step 2 — Create the Telegram bot and run setup
